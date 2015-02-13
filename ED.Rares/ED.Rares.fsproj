@@ -58,6 +58,7 @@
     <Compile Include="Model.fs" />
     <Compile Include="IO.fs" />
     <Compile Include="DBSCAN.fs" />
+    <Compile Include="Report.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <Content Include="Goods.csv">

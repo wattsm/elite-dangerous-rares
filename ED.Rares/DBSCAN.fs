@@ -44,15 +44,15 @@ module private Algorithm =
             |> List.exists (fun (_, clustered) -> manifest.System.Id = clustered.System.Id)
 
         ///Returns all manifests, including the original, where the systems are within the maximum distance
-        let getNeighbours settings manifest = 
+        let getLocalGroup settings manifest = 
             settings.Manifests
             |> List.filter (fun candidate -> 
                     (Distance.betweenSystems manifest.System candidate.System) <= settings.MaxDistance
                 ) 
 
         ///True if a manifest is a core point in a cluster
-        let isCore settings neighbours =
-            (List.length neighbours) >= settings.MinSize
+        let isCore settings localGroup =
+            (List.length localGroup) >= settings.MinSize
 
         ///Adds a manifest to the list of visited manifests
         let recordVisit manifest state = 
@@ -82,11 +82,11 @@ module private Algorithm =
                 Clusters = ((state.ClusterNo, manifest) :: state.Clusters); 
             }
 
-    //Expand a cluster by recursively moving out from core points to their neighbours
+    //Expand a cluster by recursively moving out from core points
     let expandCluster settings =
         
         //Partially apply some functions with settings where appropriate
-        let getNeighbours' = getNeighbours settings
+        let getLocalGroup' = getLocalGroup settings
         let isCore' = isCore settings
 
         let union x y = 
@@ -94,7 +94,7 @@ module private Algorithm =
             |> Seq.distinctBy (fun manifest -> manifest.System.Id)
             |> Seq.toList
 
-        let rec expandNeighbours state = function
+        let rec expandLocalGroup state = function
             | [] -> state
             | manifest :: manifests when (visited manifest state) -> 
 
@@ -107,35 +107,42 @@ module private Algorithm =
                     else
                         addToCluster manifest state
 
-                expandNeighbours state' manifests
+                expandLocalGroup state' manifests
 
             | manifest :: manifests ->
 
-                //Manifest has not been visited, so add to the visited list. Then expand
-                //its neighbours - if the manifest represents a core point then add the neighbours
-                //to the list of manifests to consider and recurse. Otherwise ignore the manifest
-                //and continue.
+                //Manifest has not been visited, so add to the visited list. As it has not been visited
+                //it also cannot be clustered, so add to the current cluster. Expand the local group and
+                //if this manifest represents a core point then add the local group to the list of
+                //manifests to consider and recurse.
 
-                let state' = recordVisit manifest state
-                let neighbours = getNeighbours' manifest //Includes self
+                let state' =                     
+                    state
+                    |> recordVisit manifest
+                    |> addToCluster manifest                      
+
+                let localGroup = getLocalGroup' manifest //Includes self
+
+                let manifests' = 
+                    if (isCore' localGroup) then
+                        union manifests localGroup
+                    else
+                        manifests
                     
-                if (isCore' neighbours) then
-                    expandNeighbours state' (union manifests neighbours)
-                else
-                    expandNeighbours state' manifests
+                expandLocalGroup state' manifests'
 
-        fun manifest neighbours (state : State) ->
+        fun manifest localGroup state ->
 
             //Increment the cluster, add the current manifest and expand
 
             let state' = startNewCluster manifest state
-            in expandNeighbours state' neighbours
+            in expandLocalGroup state' localGroup
 
     ///Runs the DBSCAN algorithm against a list of manifests using the given settings
     let rec run settings =
 
         //Partially apply some functions with settings where appropriate
-        let getNeighbours' = getNeighbours settings
+        let getLocalGroup' = getLocalGroup settings
         let expandCluster' = expandCluster settings
         let isCore' = isCore settings
 
@@ -150,15 +157,15 @@ module private Algorithm =
                         state
                     else
 
-                        let neighbours = getNeighbours' manifest
+                        let localGroup = getLocalGroup' manifest
 
-                        if (isCore' neighbours) then
+                        if (isCore' localGroup) then
 
                             //Point is core, so it can be used to create a new cluster
 
                             state
                             |> recordVisit manifest
-                            |> expandCluster' manifest neighbours
+                            |> expandCluster' manifest localGroup
 
                         else
 
